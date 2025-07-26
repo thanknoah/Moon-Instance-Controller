@@ -1,4 +1,4 @@
-// GUI & Copy and paste script credits to unknown.e, Code Logic Written by Noah
+// GUI credits to unknown.e, Code Logic Written by Noah
 
 // imports
 #include <random>
@@ -19,11 +19,41 @@ std::atomic<bool> exitFlag(false);
 #define ID_SLOW_WALK 3
 #define ID_SEND_MESSAGE 4
 #define ID_SPAM_MESSAGE 5
-#define ID_EXIT 6
+#define ID_DANCE 6
+#define ID_DANCE2 7
+#define ID_DANCE3 8
+#define ID_DANCELOOP 9
+#define ID_UNDANCE 10
+#define ID_WAVE 11
+#define ID_POINT 12
+#define ID_EXIT 13
+#define WM_UPDATE_SIDEBAR (WM_USER + 1)
 std::random_device rd;
 std::mt19937 gen(rd());
-std::uniform_int_distribution<> distHold(33, 38);   // W key hold between 30-40 ms
-std::uniform_int_distribution<> distDelay(2, 5);
+HWND g_MainWindow = NULL;
+HINSTANCE g_hInstance = NULL;
+
+// Get total amount of Roblox Instances Open
+std::vector<HWND> getRobloxWindows()
+{
+    std::vector<HWND> instances;
+    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
+        {
+            if (!IsWindowVisible(hwnd)) return TRUE;
+            wchar_t title[256];
+            GetWindowText(hwnd, title, sizeof(title) / sizeof(wchar_t));
+
+            if (wcsstr(title, L"Roblox"))
+            {
+                ((std::vector<HWND>*)lParam)->push_back(hwnd);
+            }
+
+
+            return TRUE;
+        }, (LPARAM)&instances);
+    return instances;
+}
+
 
 // Sleep simplified function [Milliseconds]
 void sleepMilli(int milliseconds)
@@ -51,7 +81,7 @@ void exitDetection()
         if (combination && !wasPressed)
         {
             exitFlag.store(true);
-            sleepSec(2);
+            sleepSec(1);
             exitFlag.store(false);
             wasPressed = true;
         }
@@ -62,26 +92,6 @@ void exitDetection()
 
         sleepMilli(10); // Run Every 10 milliseconds (detector)
     }
-}
-
-// Get total amount of Roblox Instances Open
-std::vector<HWND> getRobloxWindows()
-{
-    std::vector<HWND> instances;
-    EnumWindows([](HWND hwnd, LPARAM lParam) -> BOOL
-        {
-            if (!IsWindowVisible(hwnd)) return TRUE;
-            wchar_t title[256];
-            GetWindowText(hwnd, title, sizeof(title) / sizeof(wchar_t));
-
-            if (wcsstr(title, L"Roblox"))
-            {
-                ((std::vector<HWND>*)lParam)->push_back(hwnd);
-            }
-
-            return TRUE;
-        }, (LPARAM)&instances);
-    return instances;
 }
 
 // Low-Level Keyboard Emulator
@@ -135,7 +145,7 @@ void pressSlash(int durationMs)
     SendInput(1, &up, sizeof(INPUT));
 }
 
-// Credits to Unknown for clipboard script and pressCtrlV
+// Credits to Unknown for clipboard script and pressCtrl
 void setClipboardText(const std::string& text)
 {
     OpenClipboard(0);
@@ -202,20 +212,69 @@ void pressEnter(int durationMs)
 }
 
 // Case where it sends one message
-void sendSingleMessage(std::vector<HWND> windows)
+void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, const std::string& message)
 {
-    // Delay time
     int wHoldPerClient = 30;
     int delayBetweenClients = 50;
-
-    // PREPERATION
-    setClipboardText("Hello, we were jumping over the fence yestedasy");
  
-    for (HWND hwnd : windows) // Since this function isnt suppossed to be while looped because it completes one task, then we use for loop and then return to end : )
+    for (HWND hwnd : windows)
     {
-        // Actually spamming it (manually setting focus here because its not a while loop)
+        if (emotes == "Dance")
+        {
+            setClipboardText("/e dance");
+        }
+        else if (emotes == "Dance2")
+        {
+            setClipboardText("/e dance2");
+        }
+        else if (emotes == "Dance3")
+        {
+            setClipboardText("/e dance3");
+        }
+        else if (emotes == "Point")
+        {
+            setClipboardText("/e point");
+        }
+        else if (emotes == "Wave")
+        {
+            setClipboardText("/e wave");
+            SetForegroundWindow(hwnd);
+            SetFocus(hwnd);
+            sleepMilli(wHoldPerClient);
+            SetActiveWindow(hwnd);
+            pressSlash(wHoldPerClient);
+            pressCtrlV(wHoldPerClient);
+            pressEnter(wHoldPerClient);
+
+            std::string greetings[] = {
+            "yo wassup",
+            "hola amigos",
+            "salut les gars",
+            "holla homies",
+            "ciao belli",
+            "hej hej",
+            "aloha dude",
+            "konnichiwa senpai",
+            "wassup bro",
+            "yo yo yo",
+            "guten tag mates",
+            "hej frens",
+            "hola que pasa",
+            "oi oi oi",
+            "namaste fam"
+            };
+
+            std::uniform_int_distribution<> distDelay(1, 14);
+            int i = distDelay(gen);
+            setClipboardText(greetings[i]);
+        }
+        else
+        {
+            setClipboardText(message);
+        }
         SetForegroundWindow(hwnd);
         SetFocus(hwnd);
+        sleepMilli(wHoldPerClient);
         SetActiveWindow(hwnd);
         pressSlash(wHoldPerClient);
         pressCtrlV(wHoldPerClient);
@@ -225,16 +284,58 @@ void sendSingleMessage(std::vector<HWND> windows)
 }
 
 // Spam Messages
-void spamMessages(int durationMs)
+void spamMessages(int durationMs, const std::string& emotes)
 {
-    // PREPERATION
-    setClipboardText("Hello, we were jumping over the fence yestedasy");
+    if (emotes == "Dance")
+    {
+        setClipboardText("/e dance");
+        sleepMilli(durationMs);
+        pressSlash(durationMs);
+        pressCtrlV(durationMs);
+        pressEnter(durationMs);
+        setClipboardText("/e dance2");
+        sleepMilli(durationMs);
+        pressSlash(durationMs);
+        pressCtrlV(durationMs);
+        pressEnter(durationMs);
+        setClipboardText("/e dance3");
+        sleepMilli(durationMs);
+        pressSlash(durationMs);
+        pressCtrlV(durationMs);
+        pressEnter(durationMs);
+    }
+    else
+    {
+        setClipboardText("Hello, we were jumping over the fence yestedasy");
 
-    // Actually spamming it
+    }
     pressSlash(durationMs);
     pressCtrlV(durationMs);
     pressEnter(durationMs);
     sleepMilli(durationMs);
+}
+
+// Undance
+void Undance(std::vector<HWND> windows, int durationMs)
+{
+    for (HWND hwnd : windows)
+    {
+        SetForegroundWindow(hwnd);
+        SetFocus(hwnd);
+        SetActiveWindow(hwnd);
+        pressSpace(durationMs);
+        sleepMilli(durationMs);
+    }
+}
+
+// Sidebar update
+void sideBarUpdater(HWND hwnd)
+{ 
+    while (true)
+    {
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+        PostMessage(hwnd, WM_UPDATE_SIDEBAR, 0, 0);
+    }
 }
 
 // Main function
@@ -242,25 +343,18 @@ void mainFunc(const std::string& Mode)
 {
     AllowSetForegroundWindow(ASFW_ANY);
     std::vector<HWND> windows = getRobloxWindows();
-   
-    // filter out non-roblox instances with "roblox" in them
     for (auto it = windows.begin(); it != windows.end(); )
     {
         wchar_t title[256];
         const wchar_t* robloxName = L"Roblox";
         GetWindowText(*it, title, sizeof(title) / sizeof(wchar_t));
 
-        if (wcscmp(title, robloxName) != 0)
-        {
-            it = windows.erase(it);
-        }
-        else
-        {
-            ++it;
-        }
+        if (wcscmp(title, robloxName) != 0) { it = windows.erase(it); }
+        if (wcscmp(title, robloxName) == 0) { ++it; }
     }
 
     size_t count = windows.size();
+
     if (count == 0)
     {
         MessageBox(NULL, L"No Roblox clients found.", L"Error", MB_ICONERROR);
@@ -269,13 +363,25 @@ void mainFunc(const std::string& Mode)
 
     while (true) 
     {
-        if (exitFlag.load()) return;
-        if (Mode == "Send Message") { sendSingleMessage(windows); return; }
+        if (exitFlag.load()) { ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); return; }
+
+        // Actions which are only peformed once or twice
+        if (Mode == "Send Message") { sendSingleMessage(windows, "None", "Hello, we were jumping over the fence yestedasy"); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); return; }
+        if (Mode == "Dance") { sendSingleMessage(windows, "Dance", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); return; }
+        if (Mode == "Dance2") { sendSingleMessage(windows, "Dance2", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); return; }
+        if (Mode == "Dance3") { sendSingleMessage(windows, "Dance3", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); return; }
+        if (Mode == "Undance") { Undance(windows, 35); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); return; }
+        if (Mode == "Wave") { sendSingleMessage(windows, "Wave", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); return; }
+        if (Mode == "Point") { sendSingleMessage(windows, "Point", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); return; }
+
+        // Actions that are peformed until you click e + shift
         for (HWND hwnd : windows) 
         {
             SetForegroundWindow(hwnd);
             SetFocus(hwnd);
             SetActiveWindow(hwnd);
+            std::uniform_int_distribution<> distHold(33, 38);
+            std::uniform_int_distribution<> distDelay(2, 5);
             int wHoldPerClient = distHold(gen);
             int delayBetweenClients = distDelay(gen);
             
@@ -295,8 +401,13 @@ void mainFunc(const std::string& Mode)
             }
             else if (Mode == "Spam")
             {
-                spamMessages(wHoldPerClient);
+                spamMessages(wHoldPerClient, "None");
             }
+            else if (Mode == "Dance Loop")
+            {
+                spamMessages(20, "Dance");
+            }
+
 
             sleepMilli(delayBetweenClients);
         }
@@ -310,7 +421,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         switch (LOWORD(wParam)) {
         case ID_WALK:
             ShowWindow(hwnd, SW_MINIMIZE);
-            std::thread(mainFunc, std::string("Walk")).detach();            
+            std::thread(mainFunc, std::string("Walk")).detach();         
             break;
         case ID_JUMP:
             ShowWindow(hwnd, SW_MINIMIZE);
@@ -328,6 +439,34 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Spam")).detach();
             break;
+        case ID_DANCE:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Dance")).detach();
+            break;
+        case ID_DANCE2:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Dance2")).detach();
+            break;
+        case ID_DANCE3:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Dance3")).detach();
+            break;
+        case ID_DANCELOOP:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Dance Loop")).detach();
+            break;
+        case ID_UNDANCE:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Undance")).detach();
+            break;
+        case ID_POINT:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Point")).detach();
+            break;
+        case ID_WAVE:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Wave")).detach();
+            break;
         case ID_EXIT:
             PostQuitMessage(0);
             break;
@@ -335,14 +474,15 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         return 0;
 
     case WM_CTLCOLORBTN:
-    case WM_CTLCOLORSTATIC: 
+    case WM_CTLCOLORSTATIC:
     {
-        HDC hdc = (HDC)wParam;
-        SetBkMode(hdc, TRANSPARENT);
-        SetTextColor(hdc, RGB(255, 255, 255));
-        return (LRESULT)GetStockObject(BLACK_BRUSH);
+        HDC hdcStatic = (HDC)wParam;
+        SetBkColor(hdcStatic, RGB(40, 40, 40));          // dark gray background
+        SetTextColor(hdcStatic, RGB(255, 255, 255));     // white text
+        static HBRUSH hBrush = CreateSolidBrush(RGB(40, 40, 40));
+        return (INT_PTR)hBrush;
     }
-    case WM_PAINT: 
+    case WM_PAINT:
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
@@ -350,6 +490,57 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         EndPaint(hwnd, &ps);
         return 0;
     }
+    case WM_UPDATE_SIDEBAR:
+    {
+        std::vector<HWND> listOfClientsUI;
+
+        // Destroy old controls
+        for (HWND h : listOfClientsUI)
+            DestroyWindow(h);
+        listOfClientsUI.clear();
+
+        // Fetch updated clients - adapt to your actual function
+        std::vector<HWND>clients = getRobloxWindows();
+
+        const int SIDEBAR_WIDTH = 180;
+        const int SIDEBAR_PADDING = 10;
+        const int SIDEBAR_X = 700 - SIDEBAR_WIDTH - SIDEBAR_PADDING;
+        const int SIDEBAR_START_Y = 20;
+        const int SIDEBAR_LINE_HEIGHT = 30;
+
+        for (auto it = clients.begin(); it != clients.end(); )
+        {
+            wchar_t title[256];
+            const wchar_t* robloxName = L"Roblox";
+            GetWindowText(*it, title, sizeof(title) / sizeof(wchar_t));
+
+            if (wcscmp(title, robloxName) != 0) { it = clients.erase(it); }
+            if (wcscmp(title, robloxName) == 0) { ++it; }
+        }
+
+        for (int i = 0; i < (int)clients.size(); i++) {
+            wchar_t labelText[50];
+            wsprintf(labelText, L"Connected Client %d", clients[i]);
+
+            if (i <= 1)
+            {
+                if (clients[i] == clients[i - 1]) continue;
+            }
+
+            HWND label = CreateWindowEx(
+                0, L"STATIC", labelText,
+                WS_VISIBLE | WS_CHILD,
+                SIDEBAR_X, SIDEBAR_START_Y + (SIDEBAR_LINE_HEIGHT * i),
+                SIDEBAR_WIDTH, 25,
+                hwnd, NULL, g_hInstance, NULL);
+
+            if (label != NULL)
+                listOfClientsUI.push_back(label);
+        }
+
+        return 0;
+    }
+
     case WM_DESTROY:
         PostQuitMessage(0);
         return 0;
@@ -357,58 +548,76 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
-    std::thread(exitDetection).detach();
     const wchar_t CLASS_NAME[] = L"SimpleWin32GUI";
     WNDCLASS wc = {};
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
     wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    g_hInstance = hInstance;
 
     RegisterClass(&wc);
 
     HWND hwnd = CreateWindowEx(
-        0,
+        WS_EX_TOPMOST,  // ✅ Always on top
         CLASS_NAME,
         L"Roblox Client Controller",
         WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 700, 500,  // <- Bigger window
+        CW_USEDEFAULT, CW_USEDEFAULT, 700, 500,
         NULL, NULL, hInstance, NULL
     );
 
+    std::thread(exitDetection).detach(); // Run Exit Detector
+    std::thread(sideBarUpdater, hwnd).detach(); // Run SideBar Manager UI
+
+    g_MainWindow = hwnd;
+
     if (!hwnd) return 0;
 
-    const int BUTTON_WIDTH = 160;
-    const int BUTTON_HEIGHT = 40;
-    const int BUTTON_SPACING = 20;
-    const int START_Y = 20;
+    const int BUTTON_WIDTH = 130;         // reduced from 160
+    const int BUTTON_HEIGHT = 35;         // reduced from 40
+    const int BUTTON_SPACING_X = 15;      // tighter horizontal spacing
+    const int BUTTON_SPACING_Y = 15;      // tighter vertical spacing
 
-    int y = START_Y;
+    int startX = 20;
+    int startY = 20;
+    int x = startX;
+    int y = startY;
 
-    CreateWindow(L"BUTTON", L"Walk", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        20, y, BUTTON_WIDTH, BUTTON_HEIGHT, hwnd, (HMENU)ID_WALK, hInstance, NULL);
-    y += BUTTON_HEIGHT + BUTTON_SPACING;
+    int buttonsInRow = 0;
+    auto placeButton = [&](LPCWSTR label, int id) {
+        CreateWindow(L"BUTTON", label, WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+            x, y, BUTTON_WIDTH, BUTTON_HEIGHT, hwnd, (HMENU)id, hInstance, NULL);
 
-    CreateWindow(L"BUTTON", L"Slow Walk", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        20, y, BUTTON_WIDTH, BUTTON_HEIGHT, hwnd, (HMENU)ID_SLOW_WALK, hInstance, NULL);
-    y += BUTTON_HEIGHT + BUTTON_SPACING;
+        x += BUTTON_WIDTH + BUTTON_SPACING_X;
+        buttonsInRow++;
 
-    CreateWindow(L"BUTTON", L"Jump", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        20, y, BUTTON_WIDTH, BUTTON_HEIGHT, hwnd, (HMENU)ID_JUMP, hInstance, NULL);
-    y += BUTTON_HEIGHT + BUTTON_SPACING;
+        if (buttonsInRow == 3) {
+            buttonsInRow = 0;
+            x = startX;
+            y += BUTTON_HEIGHT + BUTTON_SPACING_Y;
+        }
+        };
 
-    CreateWindow(L"BUTTON", L"Broadcast Message", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        20, y, BUTTON_WIDTH, BUTTON_HEIGHT, hwnd, (HMENU)ID_SEND_MESSAGE, hInstance, NULL);
-    y += BUTTON_HEIGHT + BUTTON_SPACING;
+    // Place Buttons
 
-    CreateWindow(L"BUTTON", L"Spam Message", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        20, y, BUTTON_WIDTH, BUTTON_HEIGHT, hwnd, (HMENU)ID_SPAM_MESSAGE, hInstance, NULL);
-    y += BUTTON_HEIGHT + BUTTON_SPACING;
+    placeButton(L"Walk", ID_WALK);
+    placeButton(L"Slow Walk", ID_SLOW_WALK);
+    placeButton(L"Jump", ID_JUMP);
+    placeButton(L"Broadcast Msg", ID_SEND_MESSAGE); // shortened label
+    placeButton(L"Spam Msg", ID_SPAM_MESSAGE);      // shortened label
+    placeButton(L"Dance", ID_DANCE);
+    placeButton(L"Dance 2", ID_DANCE2);
+    placeButton(L"Dance 3", ID_DANCE3);
+    placeButton(L"Zombie Dance", ID_DANCELOOP);
+    placeButton(L"Undance", ID_UNDANCE);
+    placeButton(L"Wave", ID_WAVE);
+    placeButton(L"Point", ID_POINT);
+    placeButton(L"Exit", ID_EXIT);
 
-    CreateWindow(L"BUTTON", L"Exit", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        20, y, BUTTON_WIDTH, BUTTON_HEIGHT, hwnd, (HMENU)ID_EXIT, hInstance, NULL);
 
     ShowWindow(hwnd, nCmdShow);
 
