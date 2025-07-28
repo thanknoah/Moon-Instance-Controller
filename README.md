@@ -5,7 +5,7 @@
 **Features:**
 
 *Walk all (forward, left, right, backward, slow) [DISCLAIMER: ALL CLIENTS CAMERAS MUST BE FACING THE SAME PLACE]*
-*Jump All*
+*Jump All\n*
 *Dance All*
 *Dance2 All*
 *Dance3 All*
