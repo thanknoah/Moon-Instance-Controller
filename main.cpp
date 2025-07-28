@@ -287,26 +287,24 @@ void pressEnter(int durationMs)
 // Case where it sends one message
 void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, const std::string& msg)
 {
-    int wHoldPerClient = 20;
-    int delayBetweenClients = 30;
+    int wHoldPerClient = 25; // 25
+    int delayBetweenClients = 35; // 35
+
+    if (windows.size() > 6)
+    {
+        wHoldPerClient = 30;
+        delayBetweenClients = 40;
+    }
+
     std::string greetings[] = {
-        "yo wassup",
-        "hola amigos",
-        "salut les gars",
-        "holla homies",
-        "ciao belli",
-        "hej hej",
-        "aloha dude",
-        "konnichiwa senpai",
-        "wassup bro",
-        "yo yo yo",
-        "guten tag mates",
-        "hej frens",
-        "hola que pasa",
-        "oi oi oi",
-        "namaste fam"
+        "yo wassup", "hola amigos", "salut les gars", "holla homies", "ciao belli",
+        "hej hej", "aloha dude", "konnichiwa senpai", "wassup bro", "yo yo yo",
+        "guten tag mates", "hej frens", "hola que pasa", "oi oi oi", "namaste fam"
     };
 
+    std::uniform_int_distribution<> distDelay(0, 14);  // zero-based
+
+    // Handle emotes that just need to be sent as one command
     if (emotes == "Dance")
     {
         setClipboardText("/e dance");
@@ -325,44 +323,79 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
     }
     else if (emotes == "Wave")
     {
-        BlockInput(TRUE);
+        for (HWND hwnd : windows)
+        {
+            std::string greet = greetings[distDelay(gen)];
+            setClipboardText(greet);
+            Sleep(50); // ensure clipboard is ready
+
+            SetForegroundWindow(hwnd);
+            SetFocus(hwnd);
+            SetActiveWindow(hwnd);
+            Sleep(wHoldPerClient);  // give time for focus
+
+            BlockInput(TRUE);
+            pressSlash(wHoldPerClient);
+            pressCtrlV(wHoldPerClient);
+            pressEnter(wHoldPerClient);
+            BlockInput(FALSE);
+
+            Sleep(delayBetweenClients);
+        }
+
+        // Optional second message (e.g., the emote after the greeting)
+        setClipboardText("/e hello");
+        Sleep(50);
         for (HWND hwnd : windows)
         {
             SetForegroundWindow(hwnd);
             SetFocus(hwnd);
-            sleepMilli(wHoldPerClient);
             SetActiveWindow(hwnd);
-            std::uniform_int_distribution<> distDelay(1, 14);
-            int i = distDelay(gen);
-            setClipboardText(greetings[i]);
+            Sleep(wHoldPerClient);
+
+            BlockInput(TRUE);
             pressSlash(wHoldPerClient);
             pressCtrlV(wHoldPerClient);
             pressEnter(wHoldPerClient);
-            sleepMilli(delayBetweenClients);
+            BlockInput(FALSE);
+
+            Sleep(delayBetweenClients);
         }
 
-        setClipboardText("/e hello");
-        BlockInput(FALSE);
+        return; // Skip the rest
     }
     else
     {
+        // For custom messages
         setClipboardText(msg);
     }
 
-    BlockInput(TRUE);
+    if (windows.size() > 6)
+    {
+        Sleep(50);
+    }
+    else
+    {
+        Sleep(75);
+    }
+
     for (HWND hwnd : windows)
     {
         SetForegroundWindow(hwnd);
         SetFocus(hwnd);
-        sleepMilli(wHoldPerClient);
         SetActiveWindow(hwnd);
+        Sleep(wHoldPerClient);
+
+        BlockInput(TRUE);
         pressSlash(wHoldPerClient);
         pressCtrlV(wHoldPerClient);
         pressEnter(wHoldPerClient);
-        sleepMilli(delayBetweenClients);
+        BlockInput(FALSE);
+
+        Sleep(delayBetweenClients);
     }
-    BlockInput(FALSE);
 }
+
 
 // Spam Messages
 void spamMessages(int durationMs, const std::string& emotes, const std::string& msg)
@@ -480,8 +513,13 @@ void freezeAllClients(bool freeze)
     }
 
     std::vector<DWORD> pidsCleaned(pids.begin(), pids.end());
-    const int freezeDurationMs = 6000; 
-    const int unfreezeDurationMs = 300;
+    const int freezeDurationMs = 5500; 
+    int unfreezeDurationMs = 500;
+
+    if (windows.size() > 6)
+    {
+        unfreezeDurationMs = 600;
+    }
 
     while (true)
     {
@@ -501,10 +539,23 @@ void freezeAllClients(bool freeze)
             SetForegroundWindow(hwnd);
             SetFocus(hwnd);
             SetActiveWindow(hwnd);
-            sleepMilli(120);     // Let focus settle
+            if (windows.size() > 6)
+            {
+                sleepMilli(150);
+            }
+            else
+            {
+                sleepMilli(120);
+            }
             pressSpace(20);     // Simulate jump
-            sleepMilli(255);    // Wait for peak
-
+            if (windows.size() > 6)
+            {
+                sleepMilli(290);
+            }
+            else
+            {
+                sleepMilli(255);
+            }
             manageThreadOperations(pid, true); // Freezes specfic client
         }
         BlockInput(FALSE);
