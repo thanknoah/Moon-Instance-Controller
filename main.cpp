@@ -122,6 +122,84 @@ void exitDetection()
     }
 }
 
+// Limit CPU Usage
+bool limitCpuUsage(DWORD pid)
+{
+    // Open the target process
+    HANDLE hProcess = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION, FALSE, pid);
+    if (hProcess == NULL)
+    {
+        MessageBox(NULL, L"Failed to open the target process.", L"Error", MB_ICONERROR);
+        return false;
+    }
+
+    // Create a Job Object
+    HANDLE hJob = CreateJobObject(NULL, NULL);
+    if (hJob == NULL)
+    {
+        MessageBox(NULL, L"Failed to create Job Object.", L"Error", MB_ICONERROR);
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    // Set CPU rate cap
+    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION cpuRateInfo = {};
+    cpuRateInfo.ControlFlags = JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_WEIGHT_BASED;
+    cpuRateInfo.CpuRate = 1;
+
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION info = {};
+    info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+
+    // Apply CPU rate limit
+    if (!SetInformationJobObject(hJob, JobObjectCpuRateControlInformation, &cpuRateInfo, sizeof(cpuRateInfo)))
+    {
+        MessageBox(NULL, L"Failed to set CPU rate limit.", L"Error", MB_ICONERROR);
+        CloseHandle(hJob);
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    SetInformationJobObject(hJob, JobObjectExtendedLimitInformation, &info, sizeof(info));
+    if (!AssignProcessToJobObject(hJob, hProcess))
+    {
+        MessageBox(NULL, L"Failed to assign process to Job Object.", L"Error", MB_ICONERROR);
+        CloseHandle(hJob);
+        CloseHandle(hProcess);
+        return false;
+    }
+
+    CloseHandle(hProcess);
+    return true;
+}
+
+// OnStart
+void onStart(size_t n, std::vector<HWND> customizableInstances)
+{
+    std::vector<HWND> rblxInstances = getRobloxWindows();
+    std::vector<DWORD> pidsCleaned;
+    std::set<DWORD> pids;
+    DWORD pid = 0;
+
+    if (rblxInstances.size() == 0) return;
+    if (n != 0) customizableInstances == rblxInstances;
+
+    for (HWND instance : customizableInstances)
+    {
+        SetWindowPos(instance, NULL, 0, 0, 100, 100, SWP_NOZORDER | SWP_NOMOVE);
+        GetWindowThreadProcessId(instance, &pid);
+        if (pid != 0)
+            pids.insert(pid);
+    }
+
+    pidsCleaned = std::vector<DWORD>(pids.begin(), pids.end());
+
+    for (DWORD pid : pidsCleaned)
+    {
+        limitCpuUsage(pid);
+    }
+}
+
+
 // Low-Level Keyboard Emulator
 void pressW(int durationMs)
 {
@@ -293,14 +371,9 @@ void pressEnter(int durationMs)
 // Case where it sends one message
 void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, const std::string& msg)
 {
-    int wHoldPerClient = 20; // 25
-    int delayBetweenClients = 30; // 35
+    int wHoldPerClient = 18;
+    int delayBetweenClients = 18;
 
-    if (windows.size() > 6)
-    {
-        wHoldPerClient = 30;
-        delayBetweenClients = 40;
-    }
 
     std::string greetings[] = {
         "yo wassup", "hola amigos", "salut les gars", "holla homies", "ciao belli",
@@ -392,14 +465,7 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
         setClipboardText(msg);
     }
 
-    if (windows.size() > 6)
-    {
-        Sleep(30);
-    }
-    else
-    {
-        Sleep(55);
-    }
+    Sleep(50);
 
     for (HWND hwnd : windows)
     {
@@ -410,8 +476,11 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
 
         BlockInput(TRUE);
         pressSlash(wHoldPerClient);
+        Sleep(3);
         pressCtrlV(wHoldPerClient);
+        Sleep(3);
         pressEnter(wHoldPerClient);
+        Sleep(3);
         BlockInput(FALSE);
 
         Sleep(delayBetweenClients);
@@ -466,17 +535,31 @@ void sideBarUpdater(HWND hwnd)
     {
         std::this_thread::sleep_for(std::chrono::seconds(1));
         std::vector<HWND> instances = getRobloxWindows();
+        std::vector<HWND> instancesToAttach;
         if (instances.size() != currentAmountOfInstances)
         {
             currentAmountOfInstances = instances.size();
+            size_t difference = instances.size() - currentAmountOfInstances;
+
             PostMessage(hwnd, WM_UPDATE_SIDEBAR, 0, 0);
+            if (instances.size() < currentAmountOfInstances) return;
+            size_t startIndex = instances.size() - difference;
+
+            for (size_t i = startIndex; i < instances.size(); ++i)
+            {
+                instancesToAttach.push_back(instances[i]);
+            }
+
+            onStart(instancesToAttach.size(), instancesToAttach);
         }
     }
 }
 
+
 // Suspend Threads
 bool manageThreadOperations(DWORD pid, bool suspend)
 {
+    // Taking Screenshot Of Threads
     HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
     if (snapshot == INVALID_HANDLE_VALUE)
     {
@@ -484,6 +567,7 @@ bool manageThreadOperations(DWORD pid, bool suspend)
         return false;
     }
 
+    // Storing all threads into an array
     THREADENTRY32 threadEntry = {};
     threadEntry.dwSize = sizeof(threadEntry);
 
@@ -494,9 +578,12 @@ bool manageThreadOperations(DWORD pid, bool suspend)
         return false;
     }
 
+    // Looping through all threads, suspending / opening them && checking if its a gui thread
     do
     {
-        if (threadEntry.th32OwnerProcessID == pid) {
+        GUITHREADINFO guiCheck = { sizeof(GUITHREADINFO) };
+
+        if (threadEntry.th32OwnerProcessID == pid && !GetGUIThreadInfo(threadEntry.th32ThreadID, &guiCheck)) {
             HANDLE hThread = OpenThread(THREAD_SUSPEND_RESUME, FALSE, threadEntry.th32ThreadID);
             if (hThread) {
                 if (suspend)
@@ -505,14 +592,31 @@ bool manageThreadOperations(DWORD pid, bool suspend)
                     ResumeThread(hThread);
                 CloseHandle(hThread);
             }
+
             else {
                 std::cerr << "Failed to open thread ID: " << threadEntry.th32ThreadID << "\n";
             }
+                      
         }
     } while (Thread32Next(snapshot, &threadEntry));
 
     CloseHandle(snapshot);
     return true;
+}
+
+
+// Detect if Shift+e for freezing client
+bool detectProccesEnd(const std::vector<DWORD> &pidsCleaned)
+{
+    if (exitFlag.load()) 
+    { 
+        for (DWORD pid : pidsCleaned) 
+            manageThreadOperations(pid, false); 
+        ShowWindow(g_MainWindow, SW_RESTORE); 
+        SetForegroundWindow(g_MainWindow); 
+        BlockInput(FALSE); 
+        return true; 
+    }
 }
 
 // Freze
@@ -541,47 +645,26 @@ void freezeAllClients(bool freeze)
     }
 
     std::vector<DWORD> pidsCleaned(pids.begin(), pids.end());
-    const int freezeDurationMs = 7000;
+    const int freezeDurationMs = 12000;
     int unfreezeDurationMs = 1000;
-
-    if (windows.size() > 6)
-    {
-        unfreezeDurationMs = 1000;
-    }
 
     while (true)
     {
-        if (exitFlag.load()) { for (DWORD pid : pidsCleaned) manageThreadOperations(pid, false); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
-
+        if (detectProccesEnd(pidsCleaned)) return;
         Sleep(unfreezeDurationMs);
 
         BlockInput(TRUE);
         for (HWND hwnd : windows)
         {
-            if (exitFlag.load()) { for (DWORD pid : pidsCleaned) manageThreadOperations(pid, false); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
+            if (detectProccesEnd(pidsCleaned)) return;
             DWORD pid = 0;
             GetWindowThreadProcessId(hwnd, &pid);
-
             SetForegroundWindow(hwnd);
             SetFocus(hwnd);
             SetActiveWindow(hwnd);
-            if (windows.size() > 6)
-            {
-                sleepMilli(30);
-            }
-            else
-            {
-                sleepMilli(10);
-            }
+            sleepMilli(20);
             pressSpace(20);     // Simulate jump
-            if (windows.size() > 6)
-            {
-                sleepMilli(270);
-            }
-            else
-            {
-                sleepMilli(250);
-            }
+            sleepMilli(100);
             manageThreadOperations(pid, true); // Freezes specfic client
             sleepMilli(40); // focus
         }
@@ -589,7 +672,7 @@ void freezeAllClients(bool freeze)
 
         for (int x = 0; x < freezeDurationMs; x += 100)
         {
-            if (exitFlag.load()) { for (DWORD pid : pidsCleaned) manageThreadOperations(pid, false); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
+            if (detectProccesEnd(pidsCleaned)) return;
             Sleep(100);
         }
 
@@ -1006,6 +1089,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         L"Moon Client Controller V3\n\nCreated by: Noah\nGitHub: https://github.com/thanknoah/Moon-Instance-Controller\nSpecial Thanks: Unknown",
         L"Credits",
         MB_OK | MB_ICONINFORMATION);
+
+    size_t start = 0;
+    onStart(start, {});
 
 
     MSG msg = {};
