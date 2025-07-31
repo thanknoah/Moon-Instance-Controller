@@ -12,9 +12,10 @@
 #include <string>
 #include <set>
 #include <tlhelp32.h>
-
+#include <filesystem>
 
 // Public Variables
+#define ID_CREDITS 0
 #define ID_WALK 1
 #define ID_JUMP 2
 #define ID_SLOW_WALK 3
@@ -33,8 +34,13 @@
 #define ID_WALK_LEFT 16
 #define ID_FREEZE 17
 #define ID_CHATBOX 18
-#define ID_EXIT 19
+#define ID_STADIUM 19
+#define ID_CHEER 20
+#define ID_LAUGH 21
+#define ID_SHRUG 22
 #define WM_UPDATE_SIDEBAR (WM_USER + 1)
+
+
 std::atomic<bool> exitFlag(false);
 std::random_device rd;
 std::mt19937 gen(rd());
@@ -287,8 +293,8 @@ void pressEnter(int durationMs)
 // Case where it sends one message
 void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, const std::string& msg)
 {
-    int wHoldPerClient = 25; // 25
-    int delayBetweenClients = 35; // 35
+    int wHoldPerClient = 20; // 25
+    int delayBetweenClients = 30; // 35
 
     if (windows.size() > 6)
     {
@@ -320,6 +326,22 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
     else if (emotes == "Point")
     {
         setClipboardText("/e point");
+    }
+    else if (emotes == "Shrug")
+    {
+        setClipboardText("/e shrug");
+    }
+    else if (emotes == "Cheer")
+    {
+        setClipboardText("/e cheer");
+    }
+    else if (emotes == "Stadium")
+    {
+        setClipboardText("/e Stadium");
+    }
+    else if (emotes == "Laugh")
+    {
+        setClipboardText("/e laugh");
     }
     else if (emotes == "Wave")
     {
@@ -372,11 +394,11 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
 
     if (windows.size() > 6)
     {
-        Sleep(50);
+        Sleep(30);
     }
     else
     {
-        Sleep(75);
+        Sleep(55);
     }
 
     for (HWND hwnd : windows)
@@ -439,10 +461,16 @@ void Undance(std::vector<HWND> windows, int durationMs)
 // Sidebar update
 void sideBarUpdater(HWND hwnd)
 {
+    size_t currentAmountOfInstances = 0;
     while (true)
     {
-        std::this_thread::sleep_for(std::chrono::seconds(3));
-        PostMessage(hwnd, WM_UPDATE_SIDEBAR, 0, 0);
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::vector<HWND> instances = getRobloxWindows();
+        if (instances.size() != currentAmountOfInstances)
+        {
+            currentAmountOfInstances = instances.size();
+            PostMessage(hwnd, WM_UPDATE_SIDEBAR, 0, 0);
+        }
     }
 }
 
@@ -513,20 +541,18 @@ void freezeAllClients(bool freeze)
     }
 
     std::vector<DWORD> pidsCleaned(pids.begin(), pids.end());
-    const int freezeDurationMs = 5500; 
-    int unfreezeDurationMs = 500;
+    const int freezeDurationMs = 7000;
+    int unfreezeDurationMs = 1000;
 
     if (windows.size() > 6)
     {
-        unfreezeDurationMs = 600;
+        unfreezeDurationMs = 1000;
     }
 
     while (true)
     {
         if (exitFlag.load()) { for (DWORD pid : pidsCleaned) manageThreadOperations(pid, false); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
-        for (DWORD pid : pidsCleaned)
-            manageThreadOperations(pid, false);
-        
+
         Sleep(unfreezeDurationMs);
 
         BlockInput(TRUE);
@@ -541,30 +567,34 @@ void freezeAllClients(bool freeze)
             SetActiveWindow(hwnd);
             if (windows.size() > 6)
             {
-                sleepMilli(150);
+                sleepMilli(30);
             }
             else
             {
-                sleepMilli(120);
+                sleepMilli(10);
             }
             pressSpace(20);     // Simulate jump
             if (windows.size() > 6)
             {
-                sleepMilli(290);
+                sleepMilli(270);
             }
             else
             {
-                sleepMilli(255);
+                sleepMilli(250);
             }
             manageThreadOperations(pid, true); // Freezes specfic client
+            sleepMilli(40); // focus
         }
         BlockInput(FALSE);
 
-        for (int x = 0; x < freezeDurationMs; x+=100)
+        for (int x = 0; x < freezeDurationMs; x += 100)
         {
             if (exitFlag.load()) { for (DWORD pid : pidsCleaned) manageThreadOperations(pid, false); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
             Sleep(100);
         }
+
+        for (DWORD pid : pidsCleaned)
+            manageThreadOperations(pid, false);
     }
 }
 
@@ -619,6 +649,10 @@ void mainFunc(const std::string& Mode)
         if (Mode == "Undance") { Undance(windows, 35); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
         if (Mode == "Wave") { sendSingleMessage(windows, "Wave", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
         if (Mode == "Point") { sendSingleMessage(windows, "Point", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
+        if (Mode == "Stadium") { sendSingleMessage(windows, "Stadium", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
+        if (Mode == "Cheer") { sendSingleMessage(windows, "Cheer", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
+        if (Mode == "Laugh") { sendSingleMessage(windows, "Laugh", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
+        if (Mode == "Shrug") { sendSingleMessage(windows, "Shrug", ""); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
         if (Mode == "Freeze") { freezeAllClients(true); ShowWindow(g_MainWindow, SW_RESTORE); SetForegroundWindow(g_MainWindow); BlockInput(FALSE); return; }
 
         // Actions that are peformed until you click e + shift
@@ -672,15 +706,15 @@ void mainFunc(const std::string& Mode)
 }
 
 HFONT hFont = CreateFont(
-    18,               
-    0,               
-    0,                
-    0,               
-    FW_NORMAL,        
-    FALSE,           
-    FALSE,            
-    FALSE,            
-    DEFAULT_CHARSET, 
+    18,
+    0,
+    0,
+    0,
+    FW_NORMAL,
+    FALSE,
+    FALSE,
+    FALSE,
+    DEFAULT_CHARSET,
     OUT_DEFAULT_PRECIS,
     CLIP_DEFAULT_PRECIS,
     DEFAULT_QUALITY,
@@ -756,14 +790,26 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Freeze")).detach();
             break;
-        case ID_EXIT:
-            BlockInput(FALSE);
-            PostQuitMessage(0);
+        case ID_SHRUG:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Shrug")).detach();
+            break;
+        case ID_LAUGH:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Laugh")).detach();
+            break;
+        case ID_STADIUM:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Stadium")).detach();
+            break;
+        case ID_CHEER:
+            ShowWindow(hwnd, SW_MINIMIZE);
+            std::thread(mainFunc, std::string("Cheer")).detach();
             break;
         default:
             break;
         }
-        return 0;  // Prevent fall-through to WM_CLOSE
+        return 0; 
 
     case WM_CLOSE:
         BlockInput(FALSE);
@@ -796,12 +842,11 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     {
         RECT rc;
         GetClientRect(hwnd, &rc);
-
         const int EDIT_WIDTH = 150;
         const int EDIT_HEIGHT = 25;
         const int EDIT_MARGIN = 5;
         int margin = 3;
-        
+
         int y = 10;
         int x = rc.right - EDIT_WIDTH - margin;
 
@@ -829,7 +874,7 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             y += 30;
         }
     }
-}
+   }
 
 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
@@ -855,11 +900,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     RegisterClass(&wc);
 
     HWND hwnd = CreateWindowEx(
-        WS_EX_TOPMOST, 
+        WS_EX_TOPMOST,
         CLASS_NAME,
-        L"Moon Client Controller",
+        L"Moon Client Controller V3 - by Noah",
         WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 700, 400,
+        CW_USEDEFAULT, CW_USEDEFAULT, 680, 430,
         NULL, NULL, hInstance, NULL
     );
 
@@ -900,7 +945,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             y += BUTTON_HEIGHT + BUTTON_SPACING_Y;
         }
 
-        if (label == L"Exit")
+        if (label == L"Cheer")
         {
             int textboxX = START_X;
             int textboxY = y + BUTTON_HEIGHT + BUTTON_SPACING_Y;
@@ -927,7 +972,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
             SendMessage(spamButton, WM_SETFONT, (WPARAM)hFont, MAKELPARAM(TRUE, 0));
             SendMessage(hChatTextbox, WM_SETFONT, (WPARAM)hFont, MAKELPARAM(TRUE, 0));
         }
-    };
+        };
 
     // Place Buttons
     std::vector<std::pair<LPCWSTR, int>> buttons = {
@@ -945,7 +990,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
        {L"Wave", ID_WAVE},
        {L"Point", ID_POINT},
        {L"Freeze", ID_FREEZE},
-       {L"Exit", ID_EXIT}
+       {L"Stadium", ID_STADIUM},
+       {L"Laugh", ID_LAUGH},
+       {L"Shrug", ID_SHRUG},
+       {L"Cheer", ID_CHEER},
     };
 
     for (auto& btn : buttons)
@@ -954,6 +1002,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
 
     ShowWindow(hwnd, nCmdShow);
+    MessageBoxW(hwnd,
+        L"Moon Client Controller V3\n\nCreated by: Noah\nGitHub: https://github.com/thanknoah/Moon-Instance-Controller\nSpecial Thanks: Unknown",
+        L"Credits",
+        MB_OK | MB_ICONINFORMATION);
+
 
     MSG msg = {};
     while (GetMessage(&msg, NULL, 0, 0)) {
