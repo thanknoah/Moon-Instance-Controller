@@ -1,6 +1,6 @@
 # 🌙 Moon Instance Controller V4
 
-**Moon Instance Controller (`moon.exe`)** is a program that acts as an extension of **Roblox Multiple Instance** or **Bloxstrap**. It allows you to control all your Roblox clients simultaneously. In that aspect, it revolutionises trolling and enhances the overall experience.
+**Moon Instance Controller (`install moon.zip first`)** is a program that acts as an extension of **Roblox Multiple Instance** or **Bloxstrap**. It allows you to control all your Roblox clients simultaneously. In that aspect, it revolutionises trolling and enhances the overall experience.
 
 ---
 
