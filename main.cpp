@@ -58,6 +58,7 @@ std::atomic<bool> exitFlag(false);
 std::random_device rd;
 std::mt19937 gen(rd());
 
+// Global UI Elements so other functions can access the GUI
 HWND g_MainWindow = NULL;
 HWND hChatTextbox = NULL;
 HWND hPmUserTextbox = NULL;
@@ -66,15 +67,18 @@ HWND hPeformance = NULL;
 HWND hName = NULL;
 HINSTANCE g_hInstance = NULL;
 
+// Global Things that need to be accessed by seperate function (in rare cases)
 std::vector<HWND> listOfConnectedClients = {};
 std::vector<HWND> listOfAllUI = {};
 std::vector<HANDLE> processCPULimitorJobs = {};
 
+// Config variables
 std::string mode = "Normal";
 std::string UP_TO_DATE_VER = "V4";
 std::string USER_NAME;
 std::string VERSION;
 
+// JSON Config Values
 bool CPU_LIMITOR = false; // Default values
 bool NEW_USER = false;
 bool PEFORMANCE_MODE = false;
@@ -570,7 +574,7 @@ bool manageThreadOperations(DWORD pid, bool suspend)
         return false;
     }
 
-    // Storing all threads into an array
+    // Using a threadEntry to insert the window threads
     THREADENTRY32 threadEntry = {};
     threadEntry.dwSize = sizeof(threadEntry);
 
