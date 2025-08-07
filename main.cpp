@@ -3,6 +3,7 @@
 // imports
 #include <random>
 #include <tuple>
+#include <mutex>
 #include <format>
 #include <Windows.h>
 #include <vector>
@@ -17,6 +18,7 @@
 #include <tlhelp32.h>
 #include <filesystem>
 #include <nlohmann/json.hpp>
+#include "interception.h"
 
 using json = nlohmann::json;
 
@@ -50,15 +52,17 @@ using json = nlohmann::json;
 #define ID_CONFIRM 27
 #define ID_PM_MESSAGE 28
 #define ID_HACKING 29
+#define ID_UPDATE 30
 #define WM_UPDATE_SIDEBAR (WM_USER + 1)
 #define VM_HANDLE_MODE (WM_UPDATE_SIDEBAR + 1)
 
 // Other Public Variables
 std::atomic<bool> exitFlag(false);
+std::mutex cpuLimitMutex;
 std::random_device rd;
 std::mt19937 gen(rd());
+std::uniform_int_distribution<> distSleep(3, 20);
 
-// Global UI Elements so other functions can access the GUI
 HWND g_MainWindow = NULL;
 HWND hChatTextbox = NULL;
 HWND hPmUserTextbox = NULL;
@@ -67,21 +71,19 @@ HWND hPeformance = NULL;
 HWND hName = NULL;
 HINSTANCE g_hInstance = NULL;
 
-// Global Things that need to be accessed by seperate function (in rare cases)
 std::vector<HWND> listOfConnectedClients = {};
 std::vector<HWND> listOfAllUI = {};
-std::vector<HANDLE> processCPULimitorJobs = {};
 
-// Config variables
 std::string mode = "Normal";
 std::string UP_TO_DATE_VER = "V4";
 std::string USER_NAME;
 std::string VERSION;
 
-// JSON Config Values
 bool CPU_LIMITOR = false; // Default values
 bool NEW_USER = false;
 bool PEFORMANCE_MODE = false;
+
+HBRUSH hBrushDarkGrey = NULL;
 
 // Fix self attempt
 void fixFilesAttempt(bool fileExists)
@@ -288,96 +290,71 @@ void exitDetection()
             wasPressed = false;
         }
 
-        Sleep(10); // Run Every 10 milliseconds (detector)
+        Sleep(5); // Run Every 5 milliseconds (detector)
     }
 }
 
-// Limit CPU Usage
-bool limitCpuUsage(DWORD pid)
+// Gets PIDs
+std::vector<DWORD> getPids(std::vector<HWND>& customizableInstances)
 {
-    // Open the target process
-    HANDLE hProcess = OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION, FALSE, pid);
-    if (hProcess == NULL)
-    {
-        MessageBox(NULL, L"Failed to open the target process.", L"Error", MB_ICONERROR);
-        return false;
-    }
-
-    // Create a Job Object
-    HANDLE hJob = CreateJobObject(NULL, NULL);
-    if (hJob == NULL)
-    {
-        MessageBox(NULL, L"Failed to create Job Object.", L"Error", MB_ICONERROR);
-        CloseHandle(hProcess);
-        return false;
-    }
-
-    // Set CPU rate cap
-    JOBOBJECT_CPU_RATE_CONTROL_INFORMATION cpuRateInfo = {};
-    cpuRateInfo.ControlFlags = JOB_OBJECT_CPU_RATE_CONTROL_ENABLE | JOB_OBJECT_CPU_RATE_CONTROL_WEIGHT_BASED;
-    cpuRateInfo.Weight = 1;
-
-
-    // Apply CPU rate limit
-    if (!SetInformationJobObject(hJob, JobObjectCpuRateControlInformation, &cpuRateInfo, sizeof(cpuRateInfo)))
-    {
-        MessageBox(NULL, L"Failed to set CPU rate limit.", L"Error", MB_ICONERROR);
-        CloseHandle(hJob);
-        CloseHandle(hProcess);
-        return false;
-    }
-
-    // Assign Process to Job && Set CPU priority schedulling to low
-    if (!AssignProcessToJobObject(hJob, hProcess))
-    {
-        MessageBox(NULL, L"Failed to assign process to Job Object.", L"Error", MB_ICONERROR);
-        CloseHandle(hJob);
-        CloseHandle(hProcess);
-        return false;
-    }
-
-    CloseHandle(hProcess);
-    processCPULimitorJobs.push_back(hJob);
-    return true;
-}
-
-// Disables CpuLimit
-void disableCpuLimitToClients()
-{
-    for ( HANDLE hJob : processCPULimitorJobs )
-    {
-        if (hJob != NULL)
-            CloseHandle(hJob);
-    }
-    processCPULimitorJobs = {};
-}
-
-// Applies CPU limit to roblox clients
-void applyCpuLimitToClients(size_t n, std::vector<HWND> customizableInstances)
-{
-    std::vector<HWND> rblxInstances = getRobloxWindows();
-    std::vector<DWORD> pidsCleaned;
-    std::set<DWORD> pids;
+    std::vector<DWORD> pids;
     DWORD pid = 0;
-
-    if (rblxInstances.size() == 0 || CPU_LIMITOR == false) return;
-    if (n == 0) customizableInstances = rblxInstances;
 
     for (HWND instance : customizableInstances)
     {
         GetWindowThreadProcessId(instance, &pid);
         if (pid != 0)
-            pids.insert(pid);
+            pids.push_back(pid);
     }
 
-    pidsCleaned = std::vector<DWORD>(pids.begin(), pids.end());
-
-    for (DWORD pid : pidsCleaned)
-    {
-        limitCpuUsage(pid);
-    }
+    return pids;
 }
 
+// Limit CPU Usage
+void constantLimitCpuAndRamUsage()
+{
+    while (true)
+    {
+        // Open the target process
+        std::vector<HWND> listOfClients = getRobloxWindows();
+        std::vector<DWORD> pids = getPids(listOfClients);
+
+        for (DWORD pid : pids)
+        {
+            // Opening PID
+            HANDLE hProcess = OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_INFORMATION | PROCESS_SET_QUOTA, FALSE, pid);
+
+            // Error checking
+            if (hProcess == NULL)
+            {
+                MessageBox(NULL, L"Failed to open the target process.", L"Error", MB_ICONERROR);
+                continue;
+            }
+
+            // Setting CPU Limitations
+            if (!SetPriorityClass(hProcess, IDLE_PRIORITY_CLASS))
+            {
+                MessageBox(NULL, L"Failed to set CPU usage limit.", L"Error", MB_ICONERROR);
+                continue;
+            }
+
+            // Assign RAM Limitations
+            size_t lowerRamLimit = 1ULL * 1024 * 1024;
+            size_t upperRamLimit = 2ULL * 1024 * 1024;
+
+            if (!SetProcessWorkingSetSizeEx(hProcess, lowerRamLimit, upperRamLimit, 0))
+            {
+                MessageBox(NULL, L"Failed to set RAM usage limit.", L"Error", MB_ICONERROR);
+                continue;
+            }
+
+            // Close Handle
+            CloseHandle(hProcess);
+        }
+
+        std::this_thread::sleep_for(std::chrono::seconds(3));
+    }
+}
 
 // Low-Level Keyboard Emulator
 void pressW(int durationMs)
@@ -395,6 +372,7 @@ void pressW(int durationMs)
     std::this_thread::sleep_for(std::chrono::milliseconds(durationMs));
     SendInput(1, &up, sizeof(INPUT));
 }
+
 
 // Press S
 void pressS(int durationMs)
@@ -574,7 +552,7 @@ bool manageThreadOperations(DWORD pid, bool suspend)
         return false;
     }
 
-    // Using a threadEntry to insert the window threads
+    // Storing all threads into an array
     THREADENTRY32 threadEntry = {};
     threadEntry.dwSize = sizeof(threadEntry);
 
@@ -619,16 +597,15 @@ std::string convertInputText(HWND input)
     std::string chatText;
 
     if (!input) {
-        MessageBox(NULL, L"bruh its emptyy", L"Crash Handler", MB_ICONERROR);
         return "This feature isnt currently working!!!";
     }
 
     SendMessageW(input, WM_GETTEXT, BUF_SIZE, (LPARAM)buffer);
 
-    int size_needed = WideCharToMultiByte(CP_UTF8, 0, buffer, -1, nullptr, 0, nullptr, nullptr);
+    int size_needed = WideCharToMultiByte(CP_UTF8, 0, buffer, -1, NULL, 0, NULL, NULL);
     if (size_needed > 0) {
         chatText.resize(size_needed);
-        WideCharToMultiByte(CP_UTF8, 0, buffer, -1, &chatText[0], size_needed, nullptr, nullptr);
+        WideCharToMultiByte(CP_UTF8, 0, buffer, -1, &chatText[0], size_needed, NULL, NULL);
 
         if (!chatText.empty() && chatText.back() == '\0') {
             chatText.pop_back();  // Clean up null terminator
@@ -641,6 +618,16 @@ std::string convertInputText(HWND input)
 // Allow focus
 void focusOnHwnd(HWND hwnd)
 {
+    if (!IsWindow(hwnd)) return;
+    SetForegroundWindow(hwnd);
+    SetFocus(hwnd);
+    SetActiveWindow(hwnd);
+    Sleep(3);
+}
+
+void chatFocusOnHwnd(HWND hwnd)
+{
+    if (!IsWindow(hwnd)) return;
     SetForegroundWindow(hwnd);
     SetFocus(hwnd);
     SetActiveWindow(hwnd);
@@ -679,26 +666,20 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
     std::vector<std::string> memHackLines = {
     "*(int*)0x0 = 1;",
     "*(char**)0x4;",
-    "*(float*)(base+0x8) = 9.9;",
-    "addr = (int*)0xDEAD;",
-    "val = *(ptr+4);",
+    "std::cout << wstr()",
+    "addr = nullptr;",
+    "val = 0x1000;",
     "write(0x1000, 1337);",
-    "read((void*)0xBEEF);",
-    "mem[0xA] = 1;",
-    "*(bool*)(0x0) = true;",
-    "*((void**)0xC0DE) = nullptr;",
-    "ptr = (void*)0xBADF00D;",
-    "vtable[3] = (void*)0x1337;",
-    "patch(0x400)x9x2;",
-    "*(DWORD*)(base+0x20) = 0xCAFEBABE;"
     };
 
     std::uniform_int_distribution<> distDelay(0, 14);
+    std::uniform_int_distribution<> hack(0, 5);
 
     // Handle emotes that just need to be sent as one command
     if (!emotes.empty() && emotes != "wave")
     {
         setClipboardText("/e " + emotes);
+        Sleep(50);
     }
     else if (msg == "Hacking")
     {
@@ -707,7 +688,7 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
 
         for (HWND hwnd : windows)
         {
-            focusOnHwnd(hwnd);
+            chatFocusOnHwnd(hwnd);
             BlockInput(TRUE);
 
             pressSlash(wHoldPerClient);
@@ -715,15 +696,17 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
             pressEnter(wHoldPerClient);
 
             BlockInput(FALSE);
+            Sleep(delayBetweenClients);
         }
-
-        std::string hackingMsg = memHackLines[distDelay(gen)];
-        setClipboardText(hackingMsg);
-        Sleep(50);
 
         for (HWND hwnd : windows)
         {
             focusOnHwnd(hwnd);
+            std::string hackingMsg = memHackLines[hack(gen)];
+
+            setClipboardText(hackingMsg);
+            Sleep(50);
+
             BlockInput(TRUE);
 
             pressSlash(wHoldPerClient);
@@ -731,29 +714,28 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
             pressEnter(wHoldPerClient);
 
             BlockInput(FALSE);
+            Sleep(delayBetweenClients);
         }
 
         return; // Skip the rest
     }
     else if (!emotes.empty() && emotes == "wave")
     {
+        BlockInput(TRUE);
+
         for (HWND hwnd : windows)
         {
-            focusOnHwnd(hwnd);
-            std::string greet = greetings[distDelay(gen)];
+            chatFocusOnHwnd(hwnd);
+
+            int greetIndex = distDelay(gen);
+            std::string greet = greetings[greetIndex];
             setClipboardText(greet);
+
             Sleep(50);
-
-            Sleep(wHoldPerClient);
-
-            BlockInput(TRUE);
 
             pressSlash(wHoldPerClient);
             pressCtrlV(wHoldPerClient);
             pressEnter(wHoldPerClient);
-
-            BlockInput(FALSE);
-
             Sleep(delayBetweenClients);
         }
 
@@ -762,30 +744,27 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
 
         for (HWND hwnd : windows)
         {
-            focusOnHwnd(hwnd);
-            Sleep(wHoldPerClient);
-            BlockInput(TRUE);
+
+            chatFocusOnHwnd(hwnd);
 
             pressSlash(wHoldPerClient);
             pressCtrlV(wHoldPerClient);
             pressEnter(wHoldPerClient);
-
-            BlockInput(FALSE);
             Sleep(delayBetweenClients);
         }
 
-        return; // Skip the rest
+        BlockInput(FALSE);
+        return; // Skip rest
     }
     else if (!user.empty() && emotes.empty())
     {  
         for (HWND hwnd : windows)
         {
+
+            chatFocusOnHwnd(hwnd);
             std::string pmCommand = "/w " + user;
             setClipboardText(pmCommand);
             Sleep(50);
-
-            focusOnHwnd(hwnd);
-            Sleep(wHoldPerClient);
 
             BlockInput(TRUE);
 
@@ -803,14 +782,15 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
 
         for (HWND hwnd : windows)
         {
-            focusOnHwnd(hwnd);
+
+            chatFocusOnHwnd(hwnd);
             Sleep(wHoldPerClient);
             BlockInput(TRUE);
 
             pressSlash(wHoldPerClient);
             pressCtrlV(wHoldPerClient);
             pressEnter(wHoldPerClient);
-            
+
             pressSlash(wHoldPerClient);
             pressDelete(wHoldPerClient);
             pressEnter(wHoldPerClient);
@@ -832,16 +812,13 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
 
     for (HWND hwnd : windows)
     {
-        focusOnHwnd(hwnd);
+        chatFocusOnHwnd(hwnd);
         Sleep(wHoldPerClient);
         BlockInput(TRUE);
+        
         pressSlash(wHoldPerClient);
-
-        Sleep(3);
         pressCtrlV(wHoldPerClient);
-        Sleep(3);
         pressEnter(wHoldPerClient);
-        Sleep(3);
 
         BlockInput(FALSE);
         Sleep(delayBetweenClients);
@@ -849,7 +826,7 @@ void sendSingleMessage(std::vector<HWND> windows, const std::string& emotes, con
 }
 
 // Spam Messages
-void spamMessages(int durationMs, const std::string& emotes, const std::string& msg)
+void spamMessages(int durationMs, const std::string emotes, const std::string msg)
 {
     if (emotes == "Dance")
     {
@@ -882,29 +859,21 @@ void sideBarUpdater(HWND hwnd)
     size_t currentAmountOfInstances = 0;
     while (true)
     {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
+        std::this_thread::sleep_for(std::chrono::seconds(2));
         std::vector<HWND> instances = getRobloxWindows();
         std::vector<HWND> instancesToAttach;
         if (instances.size() != currentAmountOfInstances)
         {
-            currentAmountOfInstances = instances.size();
-            size_t difference = instances.size() - currentAmountOfInstances;
-
             PostMessage(hwnd, WM_UPDATE_SIDEBAR, 0, 0);
 
-            if (instances.size() < currentAmountOfInstances) return;
-            if (CPU_LIMITOR)
+            if (instances.size() < currentAmountOfInstances)
             {
-                size_t startIndex = instances.size() - difference;
-
-                for (size_t i = startIndex; i < instances.size(); ++i)
-                {
-                    instancesToAttach.push_back(instances[i]);
-                }
-
-                applyCpuLimitToClients(instancesToAttach.size(), instancesToAttach);
+                currentAmountOfInstances = instances.size();
+                continue;
             }
-           
+
+            size_t difference = instances.size() - currentAmountOfInstances;
+            currentAmountOfInstances = instances.size();
         }
     }
 }
@@ -921,6 +890,7 @@ bool detectProccesEnd(const std::vector<DWORD> &pidsCleaned)
         BlockInput(FALSE); 
         return true; 
     }
+    return false;
 }
 
 // Freze
@@ -969,10 +939,11 @@ void freezeAllClients(bool freeze)
 
             Sleep(20); 
             pressSpace(20); 
-            Sleep(100);
+            Sleep(110);
 
             manageThreadOperations(pid, true); // Freezes specfic client
-            Sleep(40); // focus
+            Sleep(50); // focus
+            if (detectProccesEnd(pidsCleaned)) return;
         }
 
         BlockInput(FALSE);
@@ -985,124 +956,121 @@ void freezeAllClients(bool freeze)
 
         for (DWORD pid : pidsCleaned)
             manageThreadOperations(pid, false);
+        if (detectProccesEnd(pidsCleaned)) return;
     }
 }
-
 
 // Main function
 void mainFunc(const std::string& Mode, const bool& emote)
 {
-    AllowSetForegroundWindow(ASFW_ANY);
-    std::vector<HWND> windows = getRobloxWindows();
-    size_t count = windows.size();
+    // Preset Variables
+    Sleep(25);
 
+    std::vector<HWND> windows = getRobloxWindows();
+    std::vector<std::thread> threads;
+    std::set<std::string> walkingMethods = { "Walk", "Walk Backward", "Walk Right", "Walk Left" };
+    std::unordered_map<std::string, void(*)(int)> actionMap = { {"Walk", pressW}, {"Walk Backward", pressS}, {"Walk Right", pressD}, {"Walk Left", pressA}, {"Jump", pressSpace} };
+
+    // Other Variables
+    size_t count = windows.size();
+    bool walkingStopped = false;
+    int counter = 0;
+
+    // Error Handling
     if (count == 0)
     {
-        MessageBox(NULL, L"No Roblox clients found.", L"Error", MB_ICONERROR); BlockInput(FALSE);
+        MessageBox(NULL, L"No Roblox clients found.", L"Error", MB_ICONERROR); BlockInput(FALSE); bringBackUI();
         return;
     }
 
-    while (true)
+    // Handling case where action has to be peformed multiple times
+    void (*normalfuncPtr)(int) = nullptr;
+    void (*spamFuncPtr)(int, const std::string, const std::string) = nullptr;
+    auto it = actionMap.find(Mode);
+
+    if (it != actionMap.end()) {
+        normalfuncPtr = it->second;
+    }
+    else if (Mode == "Spam")
     {
-        // Handling emotes (peformed once) && Exit mode
-        if (exitFlag.load()) { bringBackUI(); return; }
-        if (emote) { sendSingleMessage(windows, Mode, "", ""); bringBackUI(); return; }
+        spamFuncPtr = spamMessages;
+    }
 
-        // Actions which are only peformed once or twice
-        if (Mode == "Send Message") { sendSingleMessage(windows, "", convertInputText(hChatTextbox), ""); bringBackUI(); return; }
-        if (Mode == "Hacking") { sendSingleMessage(windows, "", "Hacking", ""); bringBackUI(); return; }
-        if (Mode == "Private Message") { sendSingleMessage(windows, "", convertInputText(hChatTextbox), convertInputText(hPmUserTextbox)); bringBackUI(); return; }
-        if (Mode == "Undance") { Undance(windows, 35); bringBackUI(); return; }
-        if (Mode == "Wave") { sendSingleMessage(windows, "Wave", "", ""); bringBackUI(); return; }
-        if (Mode == "Freeze") { freezeAllClients(true); bringBackUI(); return; }
+    // Actions which are only peformed once or twice
+    if (emote) { sendSingleMessage(windows, Mode, "", ""); bringBackUI(); return; }
+    if (Mode == "Send Message") { sendSingleMessage(windows, "", convertInputText(hChatTextbox), ""); bringBackUI(); return; }
+    if (Mode == "Hacking") { sendSingleMessage(windows, "", "Hacking", ""); bringBackUI(); return; }
+    if (Mode == "Private Message") { sendSingleMessage(windows, "", convertInputText(hChatTextbox), convertInputText(hPmUserTextbox)); bringBackUI(); return; }
+    if (Mode == "Undance") { Undance(windows, 35); bringBackUI(); return; }
+    if (Mode == "Wave") { sendSingleMessage(windows, "Wave", "", ""); bringBackUI(); return; }
+    if (Mode == "Freeze") { freezeAllClients(true); bringBackUI(); return; }
+   
+    // Actions that are peformed until you click e + shift
+    threads.emplace_back([&]() {
+        while (true) {
+            if (exitFlag.load() && walkingMethods.find(Mode) != walkingMethods.end()) { walkingStopped = true; break; }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    });
 
-        // Actions that are peformed until you click e + shift
-        for (HWND hwnd : windows)
+    for (size_t i = 0; i < windows.size(); ++i)
+    {
+        int initialDelay = 3 * static_cast<int>(i);  // stagger start
+
+        if (normalfuncPtr != nullptr)
         {
-            focusOnHwnd(hwnd);
-            std::uniform_int_distribution<> distHold(33, 38);
-            std::uniform_int_distribution<> distDelay(2, 5);
-            int wHoldPerClient = distHold(gen);
-            int delayBetweenClients = distDelay(gen);
-
-            if (Mode == "Walk")
-            {
-                pressW(wHoldPerClient);
-            }
-            else if (Mode == "Walk Backward")
-            {
-                pressS(wHoldPerClient);
-            }
-            else if (Mode == "Walk Right")
-            {
-                pressD(wHoldPerClient);
-            }
-            else if (Mode == "Walk Left")
-            {
-                pressA(wHoldPerClient);
-            }
-            else if (Mode == "Jump")
-            {
-                pressSpace(wHoldPerClient);
-            }
-            else if (Mode == "Slow Walk")
-            {
-                wHoldPerClient = 1;
-                delayBetweenClients = 1;
-                pressW(wHoldPerClient);
-            }
-            else if (Mode == "Spam")
-            {
-                spamMessages(wHoldPerClient, "None", convertInputText(hChatTextbox));
-            }
-            else if (Mode == "Dance Loop")
-            {
-                spamMessages(23, "Dance", "None");
-            }
-
-            Sleep(delayBetweenClients);
+            threads.emplace_back([hwnd_ = windows[i], normalsFuncPtr_ = normalfuncPtr, initialDelay_ = initialDelay, distSleep_ = distSleep, gen_ = gen]() mutable {
+                std::this_thread::sleep_for(std::chrono::milliseconds(initialDelay_));
+                while (!exitFlag.load()) {
+                    focusOnHwnd(hwnd_);
+                    normalsFuncPtr_(20);
+                    int sleepDuration = distSleep_(gen_);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(sleepDuration));
+                }
+                });
+        }
+        else
+        {
+            threads.emplace_back([hwnd_ = windows[i], spamFuncPtr_ = spamFuncPtr, initialDelay_ = initialDelay, distSleep_ = distSleep, gen_ = gen]() mutable {
+                std::this_thread::sleep_for(std::chrono::milliseconds(initialDelay_));
+                while (!exitFlag.load()) {
+                    focusOnHwnd(hwnd_);
+                    spamFuncPtr_(20, "None", convertInputText(hChatTextbox));
+                    int sleepDuration = distSleep_(gen_);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(sleepDuration));
+                }
+                });
         }
     }
+
+    for (auto& t : threads) {
+        if (t.joinable()) t.join();
+    }
+
+    if (walkingStopped)
+    {
+        Sleep(10);
+        bringBackUI(); return;
+    }
+    bringBackUI();  return;
 }
 
 // Font used for UI
-HFONT hFont = CreateFont(
-    24,
-    0,
-    0,
-    0,
-    FW_NORMAL,
-    FALSE,
-    FALSE,
-    FALSE,
-    DEFAULT_CHARSET,
-    OUT_DEFAULT_PRECIS,
-    CLIP_DEFAULT_PRECIS,
-    DEFAULT_QUALITY,
-    DEFAULT_PITCH | FF_SWISS,
-    L"Segoe UI");
-
-HFONT hFontGreetings = CreateFont(
-    30,
-    0,
-    0,
-    0,
-    FW_NORMAL,
-    FALSE,
-    FALSE,
-    FALSE,
-    DEFAULT_CHARSET,
-    OUT_DEFAULT_PRECIS,
-    CLIP_DEFAULT_PRECIS,
-    DEFAULT_QUALITY,
-    DEFAULT_PITCH | FF_SWISS,
-    L"Segoe UI");
+HFONT hFont = CreateFont(24, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Calibri");
+HFONT hFontGreetings = CreateFont(30, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Calibri");
 
 // apply UI settings
 void applyUISettings(HWND gui)
 {
     listOfAllUI.push_back(gui);
     SendMessage(gui, WM_SETFONT, (WPARAM)hFont, MAKELPARAM(TRUE, 0));
+}
+
+// apply UI settings
+void applyUILabelSettings(HWND gui)
+{
+    listOfAllUI.push_back(gui);
+    SendMessage(gui, WM_SETFONT, (WPARAM)hFontGreetings, MAKELPARAM(TRUE, 0));
 }
 
 // Handle Settings Mode
@@ -1128,53 +1096,69 @@ void loadSettingsUI()
     auto placeButton = [&](LPCWSTR text, PCWSTR input, int id)
         {
             HWND label = CreateWindow(L"STATIC", text, WS_CHILD | WS_VISIBLE, 20, CURRENT_Y, 250, 20, g_MainWindow, (HMENU)id, g_hInstance, NULL);
+            applyUISettings(label);
 
             CURRENT_Y += 25;
 
-            if (wcscmp(text, L"[ROBLOX] CPU Usage Limiter:"))
+            if (wcscmp(text, L"[ROBLOX] CPU Usage Limiter:") == 0)
             {
                 hCpuUsage = CreateWindow(L"BUTTON", input, WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 20, CURRENT_Y, 100, 20, g_MainWindow, (HMENU)1001, g_hInstance, NULL);
                 applyUISettings(hCpuUsage);
-            }
-
-            if (wcscmp(text, L"[Moon] High Performance:"))
-            {
-                hPeformance = CreateWindow(L"BUTTON", input, WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 20, CURRENT_Y, 100, 20, g_MainWindow, (HMENU)1001, g_hInstance, NULL);
-                applyUISettings(hPeformance);
-            }
-                
-            CURRENT_Y += 30;
-
-            if (wcscmp(text, L"[Moon] High Performance:") == 0)
-            {
-                HWND nameLabel = CreateWindow(L"STATIC", L"[Moon] Windows User Name:", WS_CHILD | WS_VISIBLE, 20, CURRENT_Y, 250, 20, g_MainWindow, (HMENU)1002, g_hInstance, NULL);
                 CURRENT_Y += 30;
-                applyUISettings(nameLabel);
             }
-
-            applyUISettings(label);
 
             if (wcscmp(text, L"[Moon] High Performance:") == 0)
             {
+                hPeformance = CreateWindow(L"BUTTON", input, WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 20, CURRENT_Y, 100, 20, g_MainWindow, (HMENU)1002, g_hInstance, NULL);
+                applyUISettings(hPeformance);
+                CURRENT_Y += 30;
+            }
+
+            if (wcscmp(text, L"[Moon] Update:") == 0)
+            {
+                int buttonX = 25;
+                int buttonY = CURRENT_Y;
+
+                HWND button = CreateWindow(L"BUTTON", L"Update", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                    buttonX, buttonY, BUTTON_WIDTH + 10, BUTTON_HEIGHT + 10, g_MainWindow, (HMENU)ID_UPDATE, g_hInstance, NULL);
+
+                applyUISettings(button);
+
+                CURRENT_Y += BUTTON_HEIGHT + 30; 
+            }
+
+            if (wcscmp(text, L"[Moon] High Performance:") == 0)
+            {
+                HWND nameLabel = CreateWindow(L"STATIC", L"[Moon] Windows User Name:", WS_CHILD | WS_VISIBLE, 20, CURRENT_Y, 250, 20, g_MainWindow, (HMENU)1003, g_hInstance, NULL);
+                applyUISettings(nameLabel);
+
+                CURRENT_Y += 30;
+
                 int textboxX = 20;
                 int textboxY = CURRENT_Y;
 
-                hName = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL, textboxX, textboxY, TEXTBOX_WIDTH, TEXTBOX_HEIGHT, g_MainWindow, (HMENU)ID_NAME, g_hInstance, NULL);
-
-                int buttonX = textboxX;           
-                int buttonY = textboxY + TEXTBOX_HEIGHT + 30; 
-
-                HWND hConfirm = CreateWindow(L"BUTTON", L"Confirm", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON, buttonX, buttonY, BUTTON_WIDTH + 40,BUTTON_HEIGHT + 10, g_MainWindow, (HMENU)ID_CONFIRM, g_hInstance, NULL);
-
-                CURRENT_Y += TEXTBOX_HEIGHT + BUTTON_SPACING_Y;
+                hName = CreateWindow(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL,
+                    textboxX, textboxY, TEXTBOX_WIDTH, TEXTBOX_HEIGHT, g_MainWindow, (HMENU)ID_NAME, g_hInstance, NULL);
                 applyUISettings(hName);
+
+                CURRENT_Y += TEXTBOX_HEIGHT + 10;
+
+                int buttonX = textboxX;
+                int buttonY = CURRENT_Y;
+
+                HWND hConfirm = CreateWindow(L"BUTTON", L"Confirm", WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
+                    buttonX, buttonY, BUTTON_WIDTH + 40, BUTTON_HEIGHT + 10, g_MainWindow, (HMENU)ID_CONFIRM, g_hInstance, NULL);
                 applyUISettings(hConfirm);
+
+                CURRENT_Y += BUTTON_HEIGHT + 15;
             }
         };
+
 
     // Place Buttons
     std::vector<std::tuple<LPCWSTR, LPCWSTR, int>> buttons;
     buttons.emplace_back(L"[ROBLOX] CPU Usage Limiter:", L"Enabled", ID_CPU_USAGE);
+    buttons.emplace_back(L"[Moon] Update:", L"Launch Updater", ID_PEFORMANCE);
     buttons.emplace_back(L"[Moon] High Performance:", L"Enabled", ID_PEFORMANCE);
 
     for (int x = 0; x < (int)buttons.size(); x++)
@@ -1203,9 +1187,6 @@ void loadNormalUI(bool onOpened)
         CPU_LIMITOR = true;
         PEFORMANCE_MODE = hPeformanceResult;
         USER_NAME = hNameResult;
-
-        if (CPU_LIMITOR == false)
-            disableCpuLimitToClients();
 
         for (HWND uiElement : listOfAllUI)
         {
@@ -1240,9 +1221,8 @@ void loadNormalUI(bool onOpened)
     LPCWSTR formattedMsg = message.c_str();
 
     // Loading User
-    HWND helloLabel = CreateWindow(L"STATIC", formattedMsg, WS_CHILD | WS_VISIBLE | SS_LEFT, 80, 10, 200, 30, g_MainWindow, NULL, g_hInstance, NULL);
-    applyUISettings(helloLabel);
-    SendMessage(helloLabel, WM_SETFONT, (WPARAM)hFont, MAKELPARAM(TRUE, 0));
+    HWND helloLabel = CreateWindow(L"STATIC", formattedMsg, WS_CHILD | WS_VISIBLE | SS_LEFT, 80, 10, 500, 30, g_MainWindow, NULL, g_hInstance, NULL);
+    applyUILabelSettings(helloLabel);
 
     // Loading other buttons
     auto placeButton = [&](LPCWSTR label, int id)
@@ -1321,90 +1301,110 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
     case WM_COMMAND:
         switch (LOWORD(wParam)) {
         case ID_WALK:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Walk"), false).detach();
             break;
         case ID_WALK_RIGHT:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Walk Right"), false).detach();
             break;
         case ID_WALK_LEFT:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Walk Left"), false).detach();
             break;
         case ID_WALK_BACKWARD:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Walk Backward"), false).detach();
             break;
         case ID_JUMP:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Jump"), false).detach();
             break;
         case ID_SLOW_WALK:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Slow Walk"), false).detach();
             break;
         case ID_SEND_MESSAGE:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Send Message"), false).detach();
             break;
         case ID_SPAM_MESSAGE:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Spam"), false).detach();
             break;
         case ID_DANCE:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("dance"), true).detach();
             break;
         case ID_DANCE2:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("dance2"), true).detach();
             break;
         case ID_DANCE3:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("dance3"), true).detach();
             break;
         case ID_DANCELOOP:
-            ShowWindow(hwnd, SW_MINIMIZE);
-            std::thread(mainFunc, std::string("Dance Loop"), false).detach();
+            MessageBox(NULL, L"Error: This feature is currently broken. Please check back in later. Luv u - noah (no homo)", L"Error", MB_ICONERROR);
             break;
         case ID_UNDANCE:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Undance"), false).detach();
             break;
         case ID_POINT:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("point"), true).detach();
             break;
         case ID_WAVE:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("wave"), true).detach();
             break;
         case ID_FREEZE:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Freeze"), false).detach();
             break;
         case ID_SHRUG:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("shrug"), true).detach();
             break;
         case ID_LAUGH:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("laugh"), true).detach();
             break;
         case ID_STADIUM:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("stadium"), true).detach();
             break;
         case ID_CHEER:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("cheer"), true).detach();
             break;
         case ID_PM_MESSAGE:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Private Message"), false).detach();
             break;
         case ID_HACKING:
+            focusOnHwnd(hwnd);
             ShowWindow(hwnd, SW_MINIMIZE);
             std::thread(mainFunc, std::string("Hacking"), false).detach();
             break;
@@ -1416,40 +1416,61 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
             mode = "Normal";
             PostMessage(hwnd, VM_HANDLE_MODE, 0, 0);
             break;
+        case ID_UPDATE:
+        {
+            LPCWSTR exePath = L"Moon Installer.exe";
+            ShellExecute(NULL, L"open", exePath, NULL, NULL, SW_SHOWNORMAL);
+            exit(0);
+        }
         default:
             break;
         }
+
         return 0; 
 
     case WM_CLOSE:
-        disableCpuLimitToClients();
         BlockInput(FALSE);
         DestroyWindow(hwnd);
         return 0;
 
     case WM_DESTROY:
-        disableCpuLimitToClients();
+        if (hBrushDarkGrey)
+        {
+            DeleteObject(hBrushDarkGrey);
+            hBrushDarkGrey = NULL;
+        }
+
+        if (hFont) DeleteObject(hFont);
+        if (hFontGreetings) DeleteObject(hFontGreetings);
+
         PostQuitMessage(0);
         return 0;
+
+    case WM_CREATE:
+        hBrushDarkGrey = CreateSolidBrush(RGB(25, 25, 25));
+        break;
+
     case WM_CTLCOLORBTN:
     case WM_CTLCOLORSTATIC:
     {
+        if (!hBrushDarkGrey) break;
         HDC hdc = (HDC)wParam;
-        HWND hwndStatic = (HWND)lParam;
-        SetBkColor(hdc, RGB(25, 25, 25));           // dark grey background
-        SetTextColor(hdc, RGB(255, 255, 255));      // white text
-        static HBRUSH hBrush = CreateSolidBrush(RGB(25, 25, 25));
-        return (INT_PTR)hBrush;
+        SetBkColor(hdc, RGB(25, 25, 25));
+        SetTextColor(hdc, RGB(255, 255, 255));
+        return (INT_PTR)hBrushDarkGrey;
     }
 
     case WM_PAINT:
     {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
-        FillRect(hdc, &ps.rcPaint, CreateSolidBrush(RGB(25, 25, 25)));
+
+        FillRect(hdc, &ps.rcPaint, hBrushDarkGrey);
+
         EndPaint(hwnd, &ps);
         return 0;
     }
+
     case VM_HANDLE_MODE:
     {
         RECT rc;
@@ -1465,8 +1486,8 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
         // Update Sidebar everytime new client appears/disappears
         RECT rc;
         GetClientRect(hwnd, &rc);
-        const int EDIT_WIDTH = 160;
-        const int EDIT_HEIGHT = 35;
+        const int EDIT_WIDTH = 190;
+        const int EDIT_HEIGHT = 25;
         const int EDIT_MARGIN = 5;
         int margin = 3;
 
@@ -1493,18 +1514,20 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) 
                 WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
                 x, y, EDIT_WIDTH, EDIT_HEIGHT,
                 hwnd, NULL, g_hInstance, NULL);
+
             listOfConnectedClients.push_back(clientDisplay);
+            SendMessage(clientDisplay, WM_SETFONT, (WPARAM)hFont, MAKELPARAM(TRUE, 0));
+
             y += 30;
         }
     }
-   }
+  }
 
     return DefWindowProc(hwnd, uMsg, wParam, lParam);
 }
 
 LONG WINAPI CrashHandler(EXCEPTION_POINTERS* p) {
     BlockInput(FALSE);
-    disableCpuLimitToClients();
     MessageBox(NULL, L"Program crashed. Input has been unblocked.", L"Crash Handler", MB_ICONERROR);
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -1528,12 +1551,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         CLASS_NAME,
         L"Moon Client Controller V4",
         WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, 680, 490,
+        CW_USEDEFAULT, CW_USEDEFAULT, 665, 490,
         NULL, NULL, hInstance, NULL
     );
 
     std::thread(exitDetection).detach(); // Run Exit Detector
     std::thread(sideBarUpdater, hwnd).detach(); // Run SideBar Manager UI
+    std::thread(constantLimitCpuAndRamUsage).detach(); // Run SideBar Manager UI
 
     g_MainWindow = hwnd;
 
@@ -1546,9 +1570,6 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
         MB_OK | MB_ICONINFORMATION);
     ShowWindow(hwnd, nCmdShow);
 
-    size_t start = 0;
-    applyCpuLimitToClients(start, {});
-
     MSG msg = {};
     while (GetMessage(&msg, NULL, 0, 0)) {
         TranslateMessage(&msg);
@@ -1556,3 +1577,5 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     }
     return 0;
 }
+
+
